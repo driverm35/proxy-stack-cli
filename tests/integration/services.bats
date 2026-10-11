@@ -48,20 +48,33 @@ setup() {
   id testuser >/dev/null 2>&1 || useradd --shell /usr/sbin/nologin --no-create-home testuser
   printf '%s\n' 'testuser:TestPassw0rd' | chpasswd
   cfg="$BATS_TEST_TMPDIR/danted.live.conf"
+  pidfile="$BATS_TEST_TMPDIR/danted.pid"
   render_dante_config "$iface" "$port" >"$cfg"
+  # Dante 1.4 has no foreground flag. -D detaches and -N expects a number.
+  sed -i "s|^logoutput:.*|logoutput: ${BATS_TEST_TMPDIR}/dante.log|" "$cfg"
   if [[ ! -f /etc/pam.d/sockd ]]; then
     printf '%s\n' 'auth required pam_unix.so' 'account required pam_unix.so' >/etc/pam.d/sockd
   fi
-  # -N stays in the foreground. -D detaches, which hid the failure last time.
-  danted -f "$cfg" -N >"$BATS_TEST_TMPDIR/danted.out" 2>&1 &
+  danted -f "$cfg" -p "$pidfile" >"$BATS_TEST_TMPDIR/danted.out" 2>&1 &
   pid=$!
-  sleep 1
+  local ready=0 _
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if bash -c "echo >/dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+      ready=1
+      break
+    fi
+    sleep 0.3
+  done
   run curl -sS --max-time 25 --socks5-hostname "127.0.0.1:${port}" --proxy-user 'testuser:TestPassw0rd' https://example.com
+  if [[ -f "$pidfile" ]]; then
+    kill -9 "$(cat "$pidfile")" >/dev/null 2>&1 || true
+  fi
   kill -9 "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
-  if [[ "$status" -ne 0 ]]; then
+  if [[ "$ready" -ne 1 || "$status" -ne 0 ]]; then
     printf '%s\n' "$output" >&2
     cat "$BATS_TEST_TMPDIR/danted.out" >&2 || true
+    cat "$BATS_TEST_TMPDIR/dante.log" >&2 || true
   fi
   [ "$status" -eq 0 ]
   [[ "$output" == *"Example Domain"* ]]
