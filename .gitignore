@@ -1,0 +1,9 @@
+dist/
+*.bak
+.env
+*.pem
+*.key
+secrets.env
+.DS_Store
+*.log
+.proxystack-local/
