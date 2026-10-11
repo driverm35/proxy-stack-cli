@@ -8,7 +8,13 @@ PROXSTACK_EMBEDDED_VERSION="0.1.0"
 PROXSTACK_DEFAULT_REPO="driverm35/proxy-stack-cli"
 
 resolve_script_dir() {
-  cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd
+  local src=""
+  # A pipe (`curl | bash`) leaves BASH_SOURCE empty. set -u must not abort.
+  if [[ ${#BASH_SOURCE[@]} -gt 0 ]]; then
+    src="${BASH_SOURCE[0]}"
+  fi
+  [[ -n "$src" ]] || return 1
+  cd "$(dirname "$src")" 2>/dev/null && pwd
 }
 
 resolve_lib_dir() {
@@ -425,6 +431,11 @@ main() {
   proxystack_dispatch
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+_proxystack_src=""
+if [[ ${#BASH_SOURCE[@]} -gt 0 ]]; then
+  _proxystack_src="${BASH_SOURCE[0]}"
+fi
+if [[ -z "$_proxystack_src" || "$_proxystack_src" == "$0" ]]; then
   main "$@"
 fi
+unset -v _proxystack_src

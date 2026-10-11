@@ -32,6 +32,13 @@ setup() {
   [[ "$output" == *"Диагностика"* ]]
 }
 
+@test "piped launch does not trip set -u" {
+  run env PROXSTACK_LIB_DIR="$PROXSTACK_ROOT/lib" PROXSTACK_ALLOW_NONROOT=1 \
+    bash -s -- version <"$PROXSTACK_ROOT/proxystack.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == "proxystack 0.1.0" ]]
+}
+
 @test "unknown command fails" {
   run cli --non-interactive nosuch
   [ "$status" -ne 0 ]
