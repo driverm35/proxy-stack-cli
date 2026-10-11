@@ -43,7 +43,6 @@ http_access deny all
 cache deny all
 via off
 forwarded_for delete
-dns_v4_first on
 EOF
 }
 

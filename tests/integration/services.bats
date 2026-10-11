@@ -49,14 +49,18 @@ setup() {
   printf '%s\n' 'testuser:TestPassw0rd' | chpasswd
   cfg="$BATS_TEST_TMPDIR/danted.live.conf"
   render_dante_config "$iface" "$port" >"$cfg"
-  # -D keeps Dante in the foreground so this test can stop it.
-  danted -f "$cfg" -D >"$BATS_TEST_TMPDIR/danted.out" 2>&1 &
+  if [[ ! -f /etc/pam.d/sockd ]]; then
+    printf '%s\n' 'auth required pam_unix.so' 'account required pam_unix.so' >/etc/pam.d/sockd
+  fi
+  # -N stays in the foreground. -D detaches, which hid the failure last time.
+  danted -f "$cfg" -N >"$BATS_TEST_TMPDIR/danted.out" 2>&1 &
   pid=$!
   sleep 1
   run curl -sS --max-time 25 --socks5-hostname "127.0.0.1:${port}" --proxy-user 'testuser:TestPassw0rd' https://example.com
   kill -9 "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
   if [[ "$status" -ne 0 ]]; then
+    printf '%s\n' "$output" >&2
     cat "$BATS_TEST_TMPDIR/danted.out" >&2 || true
   fi
   [ "$status" -eq 0 ]
@@ -67,14 +71,23 @@ setup() {
   if [[ "$(id -u)" -ne 0 ]] || ! command -v squid >/dev/null 2>&1; then
     skip "root and squid are required"
   fi
-  local helper cfg pass port=15181
+  local helper cfg pass port=15181 work
   helper="$(detect_squid_auth_helper)"
-  pass="$BATS_TEST_TMPDIR/squid-pass"
-  cfg="$BATS_TEST_TMPDIR/squid.live.conf"
+  # Squid drops to the proxy user. The Bats temp dir is mode 0700, so logs and
+  # the NCSA file must live somewhere that user can traverse.
+  work="$(mktemp -d /tmp/proxystack-squid.XXXXXX)"
+  chown proxy:proxy "$work"
+  chmod 755 "$work"
+  pass="${work}/passwords"
+  cfg="${work}/squid.conf"
   printf '%s\n' 'TestPassw0rd' | htpasswd -i -B -c "$pass" httpproxy
+  chown root:proxy "$pass"
+  chmod 640 "$pass"
   render_squid_config "$port" "$helper" "$pass" >"$cfg"
   printf 'pid_filename %s\naccess_log stdio:%s\ncache_log %s\n' \
-    "$BATS_TEST_TMPDIR/squid.pid" "$BATS_TEST_TMPDIR/squid-access.log" "$BATS_TEST_TMPDIR/squid-cache.log" >>"$cfg"
+    "${work}/squid.pid" "${work}/access.log" "${work}/cache.log" >>"$cfg"
+  touch "${work}/access.log" "${work}/cache.log"
+  chown proxy:proxy "${work}/access.log" "${work}/cache.log"
   squid -f "$cfg" -N -d 1 >"$BATS_TEST_TMPDIR/squid.out" 2>&1 &
   local pid=$!
   sleep 2
@@ -84,8 +97,10 @@ setup() {
   kill -9 "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
   if [[ "$status" -ne 0 ]]; then
+    printf '%s\n' "$output" >&2
     cat "$BATS_TEST_TMPDIR/squid.out" >&2 || true
   fi
+  rm -rf "$work"
   [ "$status" -eq 0 ]
   grep -q "Connection established" "$trace"
 }

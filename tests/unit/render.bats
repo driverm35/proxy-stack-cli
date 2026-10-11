@@ -10,6 +10,7 @@ setup() {
   run render_dante_config ens3 51080
   [ "$status" -eq 0 ]
   [[ "$output" == *"internal: ens3 port = 51080"* ]]
+  [[ "$output" == *"internal: 127.0.0.1 port = 51080"* ]]
   [[ "$output" == *"external: ens3"* ]]
   [[ "$output" == *"socksmethod: username"* ]]
   [[ "$output" == *"udpassociate"* ]]

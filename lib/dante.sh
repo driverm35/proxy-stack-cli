@@ -15,6 +15,7 @@ user.privileged: root
 user.unprivileged: nobody
 
 internal: ${iface} port = ${port}
+internal: 127.0.0.1 port = ${port}
 external: ${iface}
 
 socksmethod: username
