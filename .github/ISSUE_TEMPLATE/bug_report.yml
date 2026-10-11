@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a defect in proxystack
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the command, Ubuntu or Debian version, and the doctor summary. Do not paste passwords, bot tokens, or Proxy-Authorization headers.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: proxystack version
+      placeholder: 0.1.0
+    validations:
+      required: true
