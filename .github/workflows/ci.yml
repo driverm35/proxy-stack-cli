@@ -46,4 +46,7 @@ jobs:
           git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats-core
           sudo /tmp/bats-core/install.sh /usr/local
       - name: Validate configs and exercise listeners
-        run: sudo bats tests/integration
+        timeout-minutes: 8
+        run: |
+          sudo systemctl stop squid danted caddy || true
+          sudo bats --timing tests/integration

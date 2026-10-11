@@ -16,7 +16,7 @@ setup() {
   iface="$(ip route show default | awk '/default/ {for (i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')"
   [ -n "$iface" ]
   render_dante_config "$iface" 51080 >"$cfg"
-  timeout 20 danted -V -f "$cfg"
+  timeout --signal=KILL 20 danted -V -f "$cfg"
 }
 
 @test "squid parses a rendered config" {
@@ -27,7 +27,7 @@ setup() {
   helper="$(detect_squid_auth_helper)"
   printf '%s\n' 'TestPassw0rd' | htpasswd -i -B -c "$pass" testuser
   render_squid_config 51081 "$helper" "$pass" >"$cfg"
-  timeout 30 squid -k parse -f "$cfg"
+  timeout --signal=KILL 30 squid -k parse -f "$cfg"
 }
 
 @test "caddy validates a rendered Caddyfile" {
@@ -36,7 +36,7 @@ setup() {
   fi
   local cfg="$BATS_TEST_TMPDIR/Caddyfile"
   render_caddyfile webhook.example.com http://203.0.113.50:8080 /webhook/ /tmp/proxystack-caddy-access.log >"$cfg"
-  timeout 30 caddy validate --config "$cfg" --adapter caddyfile
+  timeout --signal=KILL 30 caddy validate --config "$cfg" --adapter caddyfile
 }
 
 @test "dante serves a real SOCKS5 request" {
@@ -54,7 +54,7 @@ setup() {
   pid=$!
   sleep 1
   run curl -sS --max-time 25 --socks5-hostname "127.0.0.1:${port}" --proxy-user 'testuser:TestPassw0rd' https://example.com
-  kill "$pid" >/dev/null 2>&1 || true
+  kill -9 "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
   if [[ "$status" -ne 0 ]]; then
     cat "$BATS_TEST_TMPDIR/danted.out" >&2 || true
@@ -81,7 +81,7 @@ setup() {
   local trace="$BATS_TEST_TMPDIR/curl.trace"
   run curl -sS --max-time 20 --proxy "http://127.0.0.1:${port}" --proxy-user 'httpproxy:TestPassw0rd' \
     --trace-ascii "$trace" -o /dev/null -w '%{http_code}' https://example.com
-  kill "$pid" >/dev/null 2>&1 || true
+  kill -9 "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
   if [[ "$status" -ne 0 ]]; then
     cat "$BATS_TEST_TMPDIR/squid.out" >&2 || true
@@ -125,7 +125,7 @@ EOF
   run curl -sS --max-time 10 -X POST -H 'Content-Type: application/json' \
     --data '{"update_id":1}' "http://127.0.0.1:18082/webhook/test"
   caddy stop >/dev/null 2>&1 || true
-  kill "$http_pid" >/dev/null 2>&1 || true
+  kill -9 "$http_pid" >/dev/null 2>&1 || true
   wait "$http_pid" >/dev/null 2>&1 || true
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok"* ]]
