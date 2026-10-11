@@ -16,7 +16,7 @@ setup() {
   iface="$(ip route show default | awk '/default/ {for (i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')"
   [ -n "$iface" ]
   render_dante_config "$iface" 51080 >"$cfg"
-  danted -V -f "$cfg"
+  timeout 20 danted -V -f "$cfg"
 }
 
 @test "squid parses a rendered config" {
@@ -27,7 +27,7 @@ setup() {
   helper="$(detect_squid_auth_helper)"
   printf '%s\n' 'TestPassw0rd' | htpasswd -i -B -c "$pass" testuser
   render_squid_config 51081 "$helper" "$pass" >"$cfg"
-  squid -k parse -f "$cfg"
+  timeout 30 squid -k parse -f "$cfg"
 }
 
 @test "caddy validates a rendered Caddyfile" {
@@ -36,7 +36,7 @@ setup() {
   fi
   local cfg="$BATS_TEST_TMPDIR/Caddyfile"
   render_caddyfile webhook.example.com http://203.0.113.50:8080 /webhook/ /tmp/proxystack-caddy-access.log >"$cfg"
-  caddy validate --config "$cfg" --adapter caddyfile
+  timeout 30 caddy validate --config "$cfg" --adapter caddyfile
 }
 
 @test "dante serves a real SOCKS5 request" {
@@ -49,11 +49,16 @@ setup() {
   printf '%s\n' 'testuser:TestPassw0rd' | chpasswd
   cfg="$BATS_TEST_TMPDIR/danted.live.conf"
   render_dante_config "$iface" "$port" >"$cfg"
-  danted -f "$cfg" -p "$BATS_TEST_TMPDIR/danted.pid"
-  pid="$(cat "$BATS_TEST_TMPDIR/danted.pid")"
+  # -D keeps Dante in the foreground so this test can stop it.
+  danted -f "$cfg" -D >"$BATS_TEST_TMPDIR/danted.out" 2>&1 &
+  pid=$!
   sleep 1
   run curl -sS --max-time 25 --socks5-hostname "127.0.0.1:${port}" --proxy-user 'testuser:TestPassw0rd' https://example.com
   kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" >/dev/null 2>&1 || true
+  if [[ "$status" -ne 0 ]]; then
+    cat "$BATS_TEST_TMPDIR/danted.out" >&2 || true
+  fi
   [ "$status" -eq 0 ]
   [[ "$output" == *"Example Domain"* ]]
 }
@@ -77,6 +82,10 @@ setup() {
   run curl -sS --max-time 20 --proxy "http://127.0.0.1:${port}" --proxy-user 'httpproxy:TestPassw0rd' \
     --trace-ascii "$trace" -o /dev/null -w '%{http_code}' https://example.com
   kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" >/dev/null 2>&1 || true
+  if [[ "$status" -ne 0 ]]; then
+    cat "$BATS_TEST_TMPDIR/squid.out" >&2 || true
+  fi
   [ "$status" -eq 0 ]
   grep -q "Connection established" "$trace"
 }
@@ -85,13 +94,14 @@ setup() {
   if ! command -v caddy >/dev/null 2>&1; then
     skip "caddy is not installed"
   fi
-  python3 - <<'PY' &
+  local hit="$BATS_TEST_TMPDIR/webhook-hit.txt"
+  cat >"$BATS_TEST_TMPDIR/mock.py" <<PY
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 class H(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
-        open("/tmp/proxystack-webhook-hit.txt", "w").write(self.path + "\n" + self.headers.get("Host", "") + "\n" + body.decode())
+        open("${hit}", "w").write(self.path + "\\n" + self.headers.get("Host", "") + "\\n" + body.decode())
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"ok")
@@ -99,6 +109,7 @@ class H(BaseHTTPRequestHandler):
         return
 ThreadingHTTPServer(("127.0.0.1", 18081), H).serve_forever()
 PY
+  python3 "$BATS_TEST_TMPDIR/mock.py" >"$BATS_TEST_TMPDIR/mock.out" 2>&1 &
   local http_pid=$!
   cat >"$BATS_TEST_TMPDIR/Caddyfile" <<'EOF'
 :18082 {
@@ -109,14 +120,14 @@ PY
 	}
 }
 EOF
-  caddy run --config "$BATS_TEST_TMPDIR/Caddyfile" --adapter caddyfile >"$BATS_TEST_TMPDIR/caddy.out" 2>&1 &
-  local caddy_pid=$!
+  caddy start --config "$BATS_TEST_TMPDIR/Caddyfile" --adapter caddyfile
   sleep 1
   run curl -sS --max-time 10 -X POST -H 'Content-Type: application/json' \
     --data '{"update_id":1}' "http://127.0.0.1:18082/webhook/test"
-  kill "$caddy_pid" >/dev/null 2>&1 || true
+  caddy stop >/dev/null 2>&1 || true
   kill "$http_pid" >/dev/null 2>&1 || true
+  wait "$http_pid" >/dev/null 2>&1 || true
   [ "$status" -eq 0 ]
   [[ "$output" == *"ok"* ]]
-  grep -q '/webhook/test' /tmp/proxystack-webhook-hit.txt
+  grep -q '/webhook/test' "$hit"
 }
